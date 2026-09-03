@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Upload passport application PDFs and view extracted JSON." />
+    <title>PPF Extractor</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">PASSPORT APPLICATION FORMS</p>
+          <h1>PPF Extractor</h1>
+          <p class="intro">Upload up to 100 PDFs. Each file is processed independently and its extracted JSON appears below.</p>
+        </div>
+        <a class="docs-link" href="/docs" target="_blank" rel="noreferrer">API docs ↗</a>
+      </header>
+
+      <section class="upload-panel" aria-labelledby="upload-title">
+        <div class="field">
+          <label id="upload-title" for="district">District ID</label>
+          <input id="district" name="district" value="ernakulam" autocomplete="off" required />
+        </div>
+
+        <label class="drop-zone" for="files" id="drop-zone">
+          <input id="files" type="file" accept="application/pdf,.pdf" multiple />
+          <span class="drop-icon">↑</span>
+          <strong>Choose PDF files</strong>
+          <span>or drag and drop them here</span>
+          <small>Maximum 100 files · 20 MB each</small>
+        </label>
+
+        <div id="selection" class="selection" aria-live="polite">No files selected</div>
+        <button id="upload" class="primary" type="button" disabled>Upload and process</button>
+        <p id="message" class="message" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="results-section" aria-labelledby="results-title">
+        <div class="results-heading">
+          <div>
+            <p class="eyebrow">RESULTS</p>
+            <h2 id="results-title">Processed files</h2>
+          </div>
+          <span id="summary" class="summary"></span>
+        </div>
+        <div id="results" class="results">
+          <div class="empty-state">Uploaded files will appear here.</div>
+        </div>
+      </section>
+    </main>
+
+    <template id="job-template">
+      <article class="job-card">
+        <header class="job-header">
+          <div>
+            <h3 class="job-name"></h3>
+            <p class="job-id"></p>
+          </div>
+          <span class="status-pill"></span>
+        </header>
+        <div class="job-body">
+          <div class="photo-wrap" hidden>
+            <img class="photo" alt="Extracted applicant" />
+            <span>Extracted photo</span>
+          </div>
+          <div class="json-wrap">
+            <div class="json-toolbar">
+              <span>JSON result</span>
+              <button class="copy-button" type="button">Copy JSON</button>
+            </div>
+            <pre class="json-output"></pre>
+          </div>
+        </div>
+      </article>
+    </template>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

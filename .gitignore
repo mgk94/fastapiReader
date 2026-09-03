@@ -1,0 +1,11 @@
+.venv/
+.env
+__pycache__/
+*.py[cod]
+data/uploads/*
+data/jobs/*
+data/*.db
+data/*.db-shm
+data/*.db-wal
+!data/uploads/.gitkeep
+!data/jobs/.gitkeep
