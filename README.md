@@ -1,3 +1,4 @@
+
 # PPF Extraction Service
 
 A minimal FastAPI service that saves uploaded passport-application PDFs to disk,
@@ -96,4 +97,6 @@ add label or coordinate rules when a new layout appears.
 
 All settings are environment variables; see `.env.example`. Notable defaults
 are a 20 MB per-PDF limit, one-second idle polling, three extraction attempts,
-and a five-minute stale-job threshold.
+and a five-minute stale-job threshold
+# fastapiReader
+
