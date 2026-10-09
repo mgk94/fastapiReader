@@ -1,5 +1,6 @@
+import logging
 import re
-import shutil
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -9,13 +10,16 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from config import settings
 from db import Job, JobStatus, get_db
 from schemas import BatchCreated, BatchJob, BatchStatus, JobResult
+from storage import ObjectStorageError, object_storage
 
 
 app = FastAPI(title="PPF Extraction Service", version="1.0.0")
+logger = logging.getLogger("ppf-api")
 PDF_CONTENT_TYPES = {"application/pdf", "application/x-pdf", "application/octet-stream"}
 FRONTEND_DIR = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
@@ -62,6 +66,15 @@ async def _save_pdf(upload: UploadFile, destination: Path) -> None:
         raise HTTPException(status_code=415, detail=f"{original_name} is not a valid PDF")
 
 
+async def _delete_objects_quietly(object_keys: list[str]) -> None:
+    if not object_keys:
+        return
+    try:
+        await run_in_threadpool(object_storage.delete_objects, object_keys)
+    except Exception:
+        logger.exception("Could not remove MinIO objects after a failed batch")
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -83,41 +96,51 @@ async def create_batch(
         raise HTTPException(status_code=400, detail="district_id must not be empty")
 
     batch_id = uuid.uuid4()
-    batch_dir = settings.upload_dir.resolve() / str(batch_id)
-    batch_dir.mkdir(parents=True, exist_ok=False)
+    uploaded_object_keys: list[str] = []
     jobs: list[Job] = []
     try:
-        for upload in files:
-            job_id = uuid.uuid4()
-            original_name = Path(upload.filename or "document.pdf").name
-            safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", original_name)[:150] or "document.pdf"
-            destination = batch_dir / f"{job_id}_{safe_name}"
-            await _save_pdf(upload, destination)
-            jobs.append(
-                Job(
-                    id=job_id,
-                    batch_id=batch_id,
-                    district_id=district_id,
-                    file_name=original_name,
-                    file_path=str(destination),
-                    status=JobStatus.queued,
+        with tempfile.TemporaryDirectory(prefix="ppf-upload-") as temporary_dir:
+            for upload in files:
+                job_id = uuid.uuid4()
+                original_name = Path(upload.filename or "document.pdf").name
+                safe_name = (
+                    re.sub(r"[^A-Za-z0-9._-]+", "_", original_name)[:150]
+                    or "document.pdf"
                 )
-            )
+                temporary_path = Path(temporary_dir) / f"{job_id}.pdf"
+                object_key = f"batches/{batch_id}/{job_id}_{safe_name}"
+                await _save_pdf(upload, temporary_path)
+                await run_in_threadpool(object_storage.upload_pdf, temporary_path, object_key)
+                uploaded_object_keys.append(object_key)
+                jobs.append(
+                    Job(
+                        id=job_id,
+                        batch_id=batch_id,
+                        district_id=district_id,
+                        file_name=original_name,
+                        object_key=object_key,
+                        status=JobStatus.queued,
+                    )
+                )
 
         # A single commit makes every row in the batch visible atomically.
         db.add_all(jobs)
         db.commit()
     except HTTPException:
         db.rollback()
-        shutil.rmtree(batch_dir, ignore_errors=True)
+        await _delete_objects_quietly(uploaded_object_keys)
         raise
     except SQLAlchemyError as exc:
         db.rollback()
-        shutil.rmtree(batch_dir, ignore_errors=True)
+        await _delete_objects_quietly(uploaded_object_keys)
         raise HTTPException(status_code=503, detail="Database is unavailable") from exc
+    except ObjectStorageError as exc:
+        db.rollback()
+        await _delete_objects_quietly(uploaded_object_keys)
+        raise HTTPException(status_code=503, detail="Object storage is unavailable") from exc
     except Exception:
         db.rollback()
-        shutil.rmtree(batch_dir, ignore_errors=True)
+        await _delete_objects_quietly(uploaded_object_keys)
         raise
     finally:
         for upload in files:
