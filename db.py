@@ -32,7 +32,7 @@ class Job(Base):
     batch_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     district_id: Mapped[str] = mapped_column(Text, nullable=False)
     file_name: Mapped[str] = mapped_column(Text, nullable=False)
-    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    object_key: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[JobStatus] = mapped_column(
         Enum(JobStatus, name="job_status", native_enum=True),
         nullable=False,

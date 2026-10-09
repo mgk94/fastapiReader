@@ -1,14 +1,14 @@
 
 # PPF Extraction Service
 
-A minimal FastAPI service that saves uploaded passport-application PDFs to disk,
-uses PostgreSQL as both the durable work queue and result store, and processes
-jobs in one or more standalone workers. There is no Redis, Celery, or in-process
-queue.
+A minimal FastAPI service that saves uploaded passport-application PDFs in
+MinIO, uses PostgreSQL as both the durable work queue and result store, and
+processes jobs in one or more standalone workers. There is no Redis, Celery, or
+in-process queue.
 
 ## Run end-to-end with Docker Compose
 
-Build and start PostgreSQL, the API, and one worker:
+Build and start MinIO, PostgreSQL, the API, and one worker:
 
 ```bash
 docker compose up -d --build
@@ -21,7 +21,9 @@ docker compose run --rm api alembic upgrade head
 ```
 
 The API is now available at <http://localhost:8000>; interactive OpenAPI docs
-are at <http://localhost:8000/docs>.
+are at <http://localhost:8000/docs>. The local MinIO console is available at
+<http://localhost:9001> using the development credentials in
+`docker-compose.yml`.
 
 Upload one or more PDFs (repeat `files` up to 100 times):
 
@@ -63,7 +65,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Start PostgreSQL (the Compose database can be used), then run:
+Start PostgreSQL and MinIO (the Compose services can be used), then run:
 
 ```bash
 alembic upgrade head
@@ -77,9 +79,16 @@ source .venv/bin/activate
 python worker.py
 ```
 
-`UPLOAD_DIR` must refer to storage visible to both API and workers. Compose uses
-a shared named volume. The database stores only the path and extracted JSON,
-never PDF bytes.
+The API first validates each PDF in a temporary local file and then uploads it
+to MinIO. PostgreSQL stores only the MinIO object key and extracted JSON, never
+PDF bytes. A worker downloads the object to a temporary file for extraction and
+deletes that temporary file afterward.
+
+For Kubernetes, configure `MINIO_ENDPOINT` with the S3 API endpoint (normally
+port 9000, not the console on port 9001). Inject `MINIO_ACCESS_KEY` and
+`MINIO_SECRET_KEY` from a Kubernetes Secret rather than committing them to the
+repository. Set `MINIO_AUTO_CREATE_BUCKET=false` when the bucket is provisioned
+separately and the application identity should not have bucket-creation access.
 
 ## Extraction behavior
 
@@ -97,6 +106,6 @@ add label or coordinate rules when a new layout appears.
 
 All settings are environment variables; see `.env.example`. Notable defaults
 are a 20 MB per-PDF limit, one-second idle polling, three extraction attempts,
-and a five-minute stale-job threshold
+and a five-minute stale-job threshold. `MINIO_ENDPOINT` accepts either a URL
+such as `https://minio.example.com` or a `host:port` value.
 # fastapiReader
-

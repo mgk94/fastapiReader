@@ -1,7 +1,9 @@
 import logging
+import tempfile
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import DBAPIError
@@ -9,6 +11,7 @@ from sqlalchemy.exc import DBAPIError
 from config import settings
 from db import Job, JobStatus, SessionLocal, engine
 from extract import extract_ppf
+from storage import object_storage
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -33,7 +36,7 @@ def claim_job() -> tuple[uuid.UUID, str, str, datetime, int] | None:
         job.locked_at = claimed_at
         job.attempts += 1
         job.error = None
-        return job.id, job.file_path, job.file_name, claimed_at, job.attempts
+        return job.id, job.object_key, job.file_name, claimed_at, job.attempts
 
 
 def complete_job(job_id: uuid.UUID, claimed_at: datetime, result: dict[str, str]) -> None:
@@ -111,10 +114,13 @@ def run() -> None:
                 time.sleep(settings.worker_poll_seconds)
                 continue
 
-            job_id, file_path, file_name, claimed_at, attempts = claimed
+            job_id, object_key, file_name, claimed_at, attempts = claimed
             logger.info("Processing job %s (attempt %d)", job_id, attempts)
             try:
-                result = extract_ppf(file_path)
+                with tempfile.TemporaryDirectory(prefix="ppf-worker-") as temporary_dir:
+                    local_pdf = Path(temporary_dir) / "document.pdf"
+                    object_storage.download_pdf(object_key, local_pdf)
+                    result = extract_ppf(str(local_pdf))
                 result["fileName"] = file_name
                 complete_job(job_id, claimed_at, result)
                 logger.info("Completed job %s", job_id)
