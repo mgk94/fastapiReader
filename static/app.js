@@ -1,4 +1,3 @@
-const districtInput = document.querySelector("#district");
 const fileInput = document.querySelector("#files");
 const dropZone = document.querySelector("#drop-zone");
 const selection = document.querySelector("#selection");
@@ -8,11 +7,15 @@ const results = document.querySelector("#results");
 const summary = document.querySelector("#summary");
 const template = document.querySelector("#job-template");
 
+const MAX_CONCURRENCY = 5;
+const MAX_ATTEMPTS = 3;
 let selectedFiles = [];
-let pollTimer = null;
+let jobs = [];
 
 function setFiles(files) {
-  selectedFiles = [...files].filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
+  selectedFiles = [...files].filter(
+    (file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"),
+  );
   if (selectedFiles.length > 100) {
     selectedFiles = selectedFiles.slice(0, 100);
     setMessage("Only the first 100 PDFs were selected.", true);
@@ -28,34 +31,31 @@ function setMessage(text, isError = false) {
   message.classList.toggle("error", isError);
 }
 
-function shortenedResult(job) {
-  const payload = {
-    job_id: job.job_id,
-    file_name: job.file_name,
-    district_id: job.district_id,
-    status: job.status,
-    result: job.result,
-    error: job.error,
+function delay(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function displayResult(job) {
+  if (!job.result) return { error: job.error || "Waiting for extraction" };
+  if (!job.result.personImageBase64) return job.result;
+  return {
+    ...job.result,
+    personImageBase64: `[image base64 omitted — ${job.result.personImageBase64.length.toLocaleString()} characters]`,
   };
-  if (payload.result?.personImageBase64) {
-    const length = payload.result.personImageBase64.length;
-    payload.result = { ...payload.result, personImageBase64: `[image base64 omitted — ${length.toLocaleString()} characters]` };
-  }
-  return payload;
 }
 
 function createCard(job) {
   const fragment = template.content.cloneNode(true);
   const card = fragment.querySelector(".job-card");
-  card.dataset.jobId = job.job_id;
+  card.dataset.jobId = job.id;
   results.append(fragment);
-  return results.querySelector(`[data-job-id="${job.job_id}"]`);
+  return results.querySelector(`[data-job-id="${job.id}"]`);
 }
 
 function renderJob(job) {
-  const card = results.querySelector(`[data-job-id="${job.job_id}"]`) || createCard(job);
-  card.querySelector(".job-name").textContent = job.file_name;
-  card.querySelector(".job-id").textContent = job.job_id;
+  const card = results.querySelector(`[data-job-id="${job.id}"]`) || createCard(job);
+  card.querySelector(".job-name").textContent = job.file.name;
+  card.querySelector(".job-id").textContent = job.id;
 
   const pill = card.querySelector(".status-pill");
   pill.textContent = job.status;
@@ -71,75 +71,97 @@ function renderJob(job) {
     photoWrap.hidden = true;
   }
 
-  const displayPayload = shortenedResult(job);
-  const json = JSON.stringify(displayPayload, null, 2);
+  const json = JSON.stringify(displayResult(job), null, 2);
   card.querySelector(".json-output").textContent = json;
   const copyButton = card.querySelector(".copy-button");
+  copyButton.disabled = !job.result;
   copyButton.onclick = async () => {
-    await navigator.clipboard.writeText(json);
+    await navigator.clipboard.writeText(JSON.stringify(job.result, null, 2));
     copyButton.textContent = "Copied";
     window.setTimeout(() => { copyButton.textContent = "Copy JSON"; }, 1200);
   };
 }
 
-function updateSummary(batch) {
-  summary.textContent = `${batch.done} done · ${batch.processing} processing · ${batch.queued} queued · ${batch.failed} failed`;
+function updateSummary() {
+  const count = (status) => jobs.filter((job) => job.status === status).length;
+  summary.textContent = `${count("done")} done · ${count("processing")} processing · ${count("queued")} queued · ${count("failed")} failed`;
 }
 
-async function fetchBatch(batchId) {
-  const response = await fetch(`/batches/${batchId}`, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Could not load batch (${response.status})`);
-  return response.json();
-}
+async function extractWithRetry(job) {
+  job.status = "processing";
+  renderJob(job);
+  updateSummary();
 
-async function pollBatch(batchId) {
-  try {
-    const batch = await fetchBatch(batchId);
-    batch.results.forEach(renderJob);
-    updateSummary(batch);
-    const finished = batch.done + batch.failed === batch.total;
-    if (finished) {
-      setMessage(`Finished processing ${batch.total} file${batch.total === 1 ? "" : "s"}.`);
-      pollTimer = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    const form = new FormData();
+    form.append("file", job.file);
+    try {
+      const response = await fetch("/extract", { method: "POST", body: form });
+      const body = await response.json();
+      if (!response.ok) {
+        const error = new Error(body.detail || `Extraction failed (${response.status})`);
+        error.retryable = response.status >= 500;
+        throw error;
+      }
+      job.result = body;
+      job.error = null;
+      job.status = "done";
+      renderJob(job);
+      updateSummary();
       return;
+    } catch (error) {
+      const retryable = error.retryable !== false;
+      if (!retryable || attempt === MAX_ATTEMPTS) {
+        job.error = error.message || "Network request failed";
+        job.status = "failed";
+        renderJob(job);
+        updateSummary();
+        return;
+      }
+      await delay(500 * (2 ** (attempt - 1)));
     }
-    pollTimer = window.setTimeout(() => pollBatch(batchId), 1000);
-  } catch (error) {
-    setMessage(error.message, true);
-    pollTimer = window.setTimeout(() => pollBatch(batchId), 2500);
   }
 }
 
 async function uploadFiles() {
-  const district = districtInput.value.trim();
-  if (!district) {
-    setMessage("Enter a district ID.", true);
-    districtInput.focus();
-    return;
-  }
   if (!selectedFiles.length) return;
 
-  window.clearTimeout(pollTimer);
   uploadButton.disabled = true;
-  setMessage("Uploading PDFs…");
+  fileInput.disabled = true;
   results.innerHTML = "";
-  summary.textContent = "";
+  setMessage("Extracting PDFs…");
 
-  const form = new FormData();
-  selectedFiles.forEach((file) => form.append("files", file));
-  try {
-    const response = await fetch(`/districts/${encodeURIComponent(district)}/batches`, { method: "POST", body: form });
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.detail || `Upload failed (${response.status})`);
+  jobs = selectedFiles.map((file, index) => ({
+    id: globalThis.crypto?.randomUUID?.() || `file-${Date.now()}-${index}`,
+    file,
+    status: "queued",
+    result: null,
+    error: null,
+  }));
+  jobs.forEach(renderJob);
+  updateSummary();
 
-    body.jobs.forEach((job) => renderJob({ ...job, district_id: district, result: null, error: null }));
-    setMessage(`Batch ${body.batch_id} accepted. Processing…`);
-    await pollBatch(body.batch_id);
-  } catch (error) {
-    setMessage(error.message, true);
-  } finally {
-    uploadButton.disabled = selectedFiles.length === 0;
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < jobs.length) {
+      const job = jobs[nextIndex];
+      nextIndex += 1;
+      await extractWithRetry(job);
+    }
   }
+
+  const workerCount = Math.min(MAX_CONCURRENCY, jobs.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+
+  const failed = jobs.filter((job) => job.status === "failed").length;
+  setMessage(
+    failed
+      ? `Finished with ${failed} failed file${failed === 1 ? "" : "s"}. Successful results remain available below.`
+      : `Finished extracting ${jobs.length} file${jobs.length === 1 ? "" : "s"}.`,
+    failed > 0,
+  );
+  fileInput.disabled = false;
+  uploadButton.disabled = selectedFiles.length === 0;
 }
 
 fileInput.addEventListener("change", () => setFiles(fileInput.files));
