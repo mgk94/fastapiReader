@@ -13,27 +13,22 @@
         <div>
           <p class="eyebrow">PASSPORT APPLICATION FORMS</p>
           <h1>PPF Extractor</h1>
-          <p class="intro">Upload up to 100 PDFs. Each file is processed independently and its extracted JSON appears below.</p>
+          <p class="intro">Upload up to 100 PDFs. Each file is sent independently and its JSON appears as soon as extraction finishes.</p>
         </div>
         <a class="docs-link" href="/docs" target="_blank" rel="noreferrer">API docs ↗</a>
       </header>
 
       <section class="upload-panel" aria-labelledby="upload-title">
-        <div class="field">
-          <label id="upload-title" for="district">District ID</label>
-          <input id="district" name="district" value="ernakulam" autocomplete="off" required />
-        </div>
-
         <label class="drop-zone" for="files" id="drop-zone">
           <input id="files" type="file" accept="application/pdf,.pdf" multiple />
           <span class="drop-icon">↑</span>
-          <strong>Choose PDF files</strong>
+          <strong id="upload-title">Choose PDF files</strong>
           <span>or drag and drop them here</span>
-          <small>Maximum 100 files · 20 MB each</small>
+          <small>Maximum 100 files · 20 MB each · 5 processed concurrently</small>
         </label>
 
+        <button id="upload" class="primary" type="button" disabled>Extract JSON</button>
         <div id="selection" class="selection" aria-live="polite">No files selected</div>
-        <button id="upload" class="primary" type="button" disabled>Upload and process</button>
         <p id="message" class="message" role="status" aria-live="polite"></p>
       </section>
 

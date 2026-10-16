@@ -54,7 +54,7 @@ h2 { margin-bottom: 0; font-size: 1.65rem; letter-spacing: -0.025em; }
   box-shadow: var(--shadow);
 }
 
-.upload-panel { display: grid; grid-template-columns: minmax(180px, 0.35fr) 1fr auto; gap: 18px; align-items: end; padding: 24px; }
+.upload-panel { display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: end; padding: 24px; }
 .field { align-self: stretch; }
 .field label { display: block; margin-bottom: 9px; font-size: 0.8rem; font-weight: 800; }
 .field input { width: 100%; height: 48px; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; outline: none; }
@@ -70,7 +70,7 @@ h2 { margin-bottom: 0; font-size: 1.65rem; letter-spacing: -0.025em; }
 .primary { height: 48px; padding: 0 20px; border: 0; border-radius: 10px; color: white; background: var(--accent); font-weight: 800; cursor: pointer; }
 .primary:hover:not(:disabled) { background: var(--accent-dark); }
 .primary:disabled { opacity: 0.45; cursor: not-allowed; }
-.selection { grid-column: 2; color: var(--muted); font-size: 0.84rem; overflow-wrap: anywhere; }
+.selection { grid-column: 1; color: var(--muted); font-size: 0.84rem; overflow-wrap: anywhere; }
 .message { grid-column: 1 / -1; min-height: 1.25rem; margin: 0; color: var(--muted); font-size: 0.9rem; }
 .message.error { color: var(--failed); }
 

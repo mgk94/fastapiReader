@@ -2,10 +2,11 @@
 .env
 __pycache__/
 *.py[cod]
-data/uploads/*
-data/jobs/*
+
+# Legacy local runtime artifacts are not used by the stateless service.
+data/uploads/
+data/jobs/
+data/celery/
 data/*.db
 data/*.db-shm
 data/*.db-wal
-!data/uploads/.gitkeep
-!data/jobs/.gitkeep
